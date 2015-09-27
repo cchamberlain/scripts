@@ -1,47 +1,54 @@
 [CmdletBinding()]
 param (
-  [parameter(HelpMessage="Enable tracing messages.")]
+  [parameter(HelpMessage="Enable tracing messages")]
   [switch]$POD_TRACE,
 
-  [parameter(HelpMessage="Enable debugging messages.")]
+  [parameter(HelpMessage="Enable debugging messages")]
   [switch]$POD_DEBUG=$POD_TRACE,
 
-  [parameter(HelpMessage="Enable logging messages.")]
+  [parameter(HelpMessage="Enable logging messages")]
   [switch]$POD_LOG=$POD_DEBUG,
 
-  [parameter(HelpMessage="Stores the execution working directory.")]
+  [parameter(HelpMessage="Stores the execution working directory")]
   [string]$ExecutionDirectory=$PWD,
 
-  [parameter(Position=0,HelpMessage="Enter a file path to process or execute from pod root.")]
-  [string]$Deploy=$PWD,
+  [parameter(Position=0,HelpMessage="Pod package directory path")]
+  [string]$PodRoot=$PWD,
 
-  [parameter(HelpMessage="Compare two directories recursively for differences.")]
-  [alias("d")]
-  [string[]]$Diff,
-
-  [parameter(HelpMessage="Omit output for results from left side (for diffs).")]
-  [switch]$NoLeft,
-
-  [parameter(HelpMessage="Omit output for results from right side (for diffs).")]
-  [switch]$NoRight,
-
-  [parameter(HelpMessage="Rollback a pod delta archive.")]
-  [alias("r")]
-  [string]$Rollback,
-
-  [parameter(HelpMessage="Generate a deployment pod at specified path.")]
-  [alias("g")]
-  [switch]$Generate,
-
-  [parameter(HelpMessage="Path to podfile configuration to use.")]
+  [parameter(HelpMessage="Path to podfile configuration to use")]
   [alias("c")]
   [string]$PodfilePath=(Join-Path $PWD podfile.json),
 
-  [parameter(HelpMessage="Export a summary to path.")]
+  [parameter(HelpMessage="Compare two directories recursively for differences")]
+  [alias("d")]
+  [string[]]$Diff,
+
+  [parameter(HelpMessage="Omit output for results from left side (for diffs)")]
+  [switch]$NoLeft,
+
+  [parameter(HelpMessage="Omit output for results from right side (for diffs)")]
+  [switch]$NoRight,
+
+  [parameter(HelpMessage="Rollback a pod delta archive")]
+  [alias("r")]
+  [string]$Rollback,
+
+  [parameter(HelpMessage="Generate a deployment pod at specified path")]
+  [alias("g")]
+  [switch]$Generate,
+
+  [parameter(HelpMessage="Generate from SVN")]
+  [switch]$UseSvnStrategy,
+
+  [parameter(HelpMessage="Generate from SVN")]
+  [switch]$UseSvnStrategy,
+
+
+  [parameter(HelpMessage="Export a summary to path")]
   [alias("s")]
   [string]$ExportSummary,
 
-  [parameter(HelpMessage="Machine / PowerShell parsable output.")]
+  [parameter(HelpMessage="Machine / PowerShell parsable output")]
   [alias("p")]
   [switch]$Porcelain
 )
@@ -51,7 +58,7 @@ $POD_SEMVER_MAJOR = 0
 $POD_SEMVER_MINOR = 3
 $POD_SEMVER_PATCH = 0
 $POD_VERSION  = "$POD_SEMVER_MAJOR.$POD_SEMVER_MINOR.$POD_SEMVER_PATCH"
-$POD_USAGE    = "usage: pod [-d|-Diff path/to/left,path/to/right [-NoLeft|-NoRight]] [-g|-Generate] [-c|-PodfilePath path/to/podfile] [-p|-Porcelain] [path/to/pod]"
+$POD_USAGE    = "usage: pod [-d|-Diff path/to/left,path/to/right [-NoLeft|-NoRight]] [-g|-Generate] [-c|-PodfilePath path/to/podfile] [-p|-Porcelain] [path/to/pod=.]"
 $POD_STAMP    = "$(get-date -f yyyyMMdd\THHmmss)"
 ### END DEFINITIONS ###
 
@@ -495,17 +502,17 @@ function SavePodfile {
     [Object[]]$PodfileContent
   )
   PROCESS {
-    ConvertTo-Json $PodfileJson
-    $PodfilePath = RequirePodfile $PodfilePath
-    $PodfileJson = cat $PodfilePath | Out-String
-
+    $PodfileJson = ConvertTo-Json $PodfileContent
+    $PodfilePath = ResolvePath $PodfilePath
+    $PodfileJson >$PodfilePath
+    Print -s "Podfile successfully written to $PodfilePath"
   }
 }
 
 function NewPodFile {
   [CmdletBinding(
     SupportsShouldProcess=$TRUE,
-    ConfirmImpact="High"
+    ConfirmImpact="Medium"
   )]
   param (
     [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
@@ -518,7 +525,7 @@ function NewPodFile {
 
     [parameter(Mandatory=$TRUE,Position=2,HelpMessage="The path to the server root.")]
     [alias("t")]
-    [string]$ServerRoot,
+    [string]$Ser
 
     [parameter(Mandatory=$TRUE,Position=3,HelpMessage="The path to the server archive.")]
     [alias("a")]
@@ -541,6 +548,41 @@ function NewPodFile {
 "@ -replace "\\","\\\\"
     $PodfileJson >$PodfilePath
     Print -s "Podfile successfully written to $PodfilePath"
+  }
+}
+
+function GeneratePodSvn {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="URL or path to SVN repo")]
+    [alias("e")]
+    [switch]$ExportPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Path to pod root")]
+    [alias("p")]
+    [switch]$PodRoot,
+
+    [parameter(HelpMessage="Revisions to get (svn style)")]
+    [alias("r")]
+    [string]$Revisions=HEAD
+  )
+  PROCESS {
+    $PodRoot = path/to/pod $PodRoot
+    MakeDirP $PodRoot
+    # ON SERVER
+    # svnlook changed OR svnlook diff
+
+    # http://svnbook.red-bean.com/en/1.7/svn.tour.revs.specifiers.html
+    $LOG_RAW=svn diff --summarize -r COMMITTED:PREV
+    $MODIFIED_RAW = ($LOG_RAW | where { $_.StartsWith("M") }) -replace "^[MDA] +",""
+    $ADDED_RAW =    ($LOG_RAW | where { $_.StartsWith("A") }) -replace "^[MDA] +",""
+    $DELETED_RAW =  ($LOG_RAW | where { $_.StartsWith("D") }) -replace "^[MDA] +",""
+
+    # PATHS ARE FROM ROOT OF REPO
+     (svn diff --summarize -r COMMITTED:PREV .\TixWebApp | grep ^M) -replace "^[MDA]
++",""
+    $LogRaw = svn log -l 1 -r $Revisions -v -q $ExportPath
+    svn export $ExportPath $PodRoot --native-eol CRLF
   }
 }
 
@@ -581,9 +623,13 @@ if($Generate) {
   Print "== GENERATE MODE ==" -s -a 1
   if(!(Test-Path $PodfilePath -PathType leaf)) {
     Print -w "No podfile exists at $PodfilePath, creating one..."
-    NewPodFile $PodfilePath
+    NewPodFile $PodfilePath -Confirm
   }
-  ReadPodfile $PodfilePath
+  $Podfile = ReadPodfile $PodfilePath
+  $Podfile
+
+  if($UseSvnStrategy) {
+  }
 
   SafeExit
 }
@@ -595,7 +641,7 @@ if($Generate) {
 Print "== DEPLOYMENT MODE ==" -s -a 1
 
 Log "CONFIGURE BASIC PATHS" -d
-$POD_ROOT         = RequirePath /path/to/pod $Deploy container
+$POD_ROOT         = RequirePath /path/to/pod $PodRoot container
 $FILES_ROOT       = Join-Path $POD_ROOT files
 $ETC_ROOT         = Join-Path $POD_ROOT etc
 $ETC_DELETE_PATH  = Join-Path $ETC_ROOT delete
