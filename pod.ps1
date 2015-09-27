@@ -1,15 +1,12 @@
 [CmdletBinding()]
 param (
   [parameter(HelpMessage="Enable tracing messages.")]
-  [alias("t")]
   [switch]$POD_TRACE,
 
   [parameter(HelpMessage="Enable debugging messages.")]
-  [alias("d")]
   [switch]$POD_DEBUG=$POD_TRACE,
 
   [parameter(HelpMessage="Enable logging messages.")]
-  [alias("l")]
   [switch]$POD_LOG=$POD_DEBUG,
 
   [parameter(HelpMessage="Stores the execution working directory.")]
@@ -19,8 +16,14 @@ param (
   [string]$Deploy=$PWD,
 
   [parameter(HelpMessage="Compare two directories recursively for differences.")]
-  [alias("c")]
-  [string[]]$Compare,
+  [alias("d")]
+  [string[]]$Diff,
+
+  [parameter(HelpMessage="Omit output for results from left side (for diffs).")]
+  [switch]$NoLeft,
+
+  [parameter(HelpMessage="Omit output for results from right side (for diffs).")]
+  [switch]$NoRight,
 
   [parameter(HelpMessage="Rollback a pod delta archive.")]
   [alias("r")]
@@ -30,19 +33,43 @@ param (
   [alias("g")]
   [switch]$Generate,
 
+  [parameter(HelpMessage="Path to podfile configuration to use.")]
+  [alias("c")]
+  [string]$PodfilePath=(Join-Path $PWD podfile.json),
+
   [parameter(HelpMessage="Export a summary to path.")]
   [alias("s")]
-  [string]$ExportSummary
+  [string]$ExportSummary,
+
+  [parameter(HelpMessage="Machine / PowerShell parsable output.")]
+  [alias("p")]
+  [switch]$Porcelain
 )
 
 ### DEFINITIONS ###
 $POD_SEMVER_MAJOR = 0
-$POD_SEMVER_MINOR = 1
-$POD_SEMVER_PATCH = 1
+$POD_SEMVER_MINOR = 3
+$POD_SEMVER_PATCH = 0
 $POD_VERSION  = "$POD_SEMVER_MAJOR.$POD_SEMVER_MINOR.$POD_SEMVER_PATCH"
-$POD_USAGE    = "usage: pod [-c|-Compare path/to/left path/to/right] [-g|-Generate] [path/to/pod]"
+$POD_USAGE    = "usage: pod [-d|-Diff path/to/left,path/to/right [-NoLeft|-NoRight]] [-g|-Generate] [-c|-PodfilePath path/to/podfile] [-p|-Porcelain] [path/to/pod]"
 $POD_STAMP    = "$(get-date -f yyyyMMdd\THHmmss)"
 ### END DEFINITIONS ###
+
+###############################################################################
+# PODFILE FORMAT
+# DEFAULT: PODFILE IN ROOT OF POD PACKAGE
+#
+# { "targets":  [ { "name":     "SERVER_ONE"
+#                 , "root":     "path/to/server/one/root"
+#                 , "archive":  "path/to/archive/one/root"
+#                 }
+#               , { "name":     "SERVER_TWO"
+#                 , "root":     "/abs/path/to/server/root/two/root"
+#                 , "archive":  "//unc-server/path/to/archive/two/root"
+#                 }
+#               ]
+# }
+###############################################################################
 
 
 ### FUNCTION DEFINITIONS ###
@@ -147,16 +174,18 @@ function Print {
     [switch]$ExitAfter
   )
   PROCESS {
-    if($LinesBefore -ne 0) {
-      foreach($i in 0..$LinesBefore) { Write-Host "" }
-    }
-    if($InfoFlag) { Write-Host "$Message" }
-    if($SuccessFlag) { Write-Host "$Message" -ForegroundColor "Green" }
-    if($WarningFlag) { Write-Host "$Message" -ForegroundColor "Orange" }
-    if($ErrorFlag) { Write-Host "$Message" -ForegroundColor "Red" }
-    if($FatalFlag) { Write-Host "$Message" -ForegroundColor "Red" -BackgroundColor "Black" }
-    if($LinesAfter -ne 0) {
-      foreach($i in 0..$LinesAfter) { Write-Host "" }
+    if(!$Porcelain) {
+      if($LinesBefore -ne 0) {
+        foreach($i in 0..$LinesBefore) { Write-Host "" }
+      }
+      if($InfoFlag) { Write-Host "$Message" }
+      if($SuccessFlag) { Write-Host "$Message" -ForegroundColor "Green" }
+      if($WarningFlag) { Write-Host "$Message" -ForegroundColor "Yellow" }
+      if($ErrorFlag) { Write-Host "$Message" -ForegroundColor "Red" }
+      if($FatalFlag) { Write-Host "$Message" -ForegroundColor "Red" -BackgroundColor "Black" }
+      if($LinesAfter -ne 0) {
+        foreach($i in 0..$LinesAfter) { Write-Host "" }
+      }
     }
     if($ExitAfter) { SafeExit }
   }
@@ -164,6 +193,9 @@ function Print {
 
 # PRINTS HEADER INFORMATION FOR APP #
 function PrintHeader {
+  if($Porcelain) {
+    return
+  }
   Log "PrintHeader" -t
   Write-Host ""
   Write-Host "== " -NoNewLine -ForegroundColor "Cyan"
@@ -189,22 +221,24 @@ function PrintUsage {
     [switch]$ExitAfter
   )
   PROCESS {
-    Log "PrintUsage" -t
-    Write-Host "`t$POD_USAGE"
-    if($ErrorMessages) {
+    if(!$Porcelain) {
+      Log "PrintUsage" -t
+      Write-Host "`t$POD_USAGE"
+      if($ErrorMessages) {
+        Write-Host ""
+        Write-Host "`t" -NoNewLine
+        Write-Host "== Errors ==" -ForegroundColor "Red" -BackgroundColor "Black"
+        if($ErrorSource) {
+          Write-Host "`t" -NoNewLine
+          Write-Host "Error Source: [$ErrorSource]" -ForegroundColor "Red"
+        }
+        foreach($ErrorMessage in $ErrorMessages) {
+          Write-Host "`t" -NoNewLine
+          Write-Host "Error: [$ErrorMessage]" -ForegroundColor "Red"
+        }
+      }
       Write-Host ""
-      Write-Host "`t" -NoNewLine
-      Write-Host "== Errors ==" -ForegroundColor "Red" -BackgroundColor "Black"
-      if($ErrorSource) {
-        Write-Host "`t" -NoNewLine
-        Write-Host "Error Source: [$ErrorSource]" -ForegroundColor "Red"
-      }
-      foreach($ErrorMessage in $ErrorMessages) {
-        Write-Host "`t" -NoNewLine
-        Write-Host "Error: [$ErrorMessage]" -ForegroundColor "Red"
-      }
     }
-    Write-Host ""
     if($ExitAfter) {
       SafeExit
     }
@@ -354,59 +388,188 @@ function DiffDirectories {
   }
 }
 
+function RecursiveDiff {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Directory to compare left.")]
+    [alias("l")]
+    [string]$LeftPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Directory to compare right.")]
+    [alias("r")]
+    [string]$RightPath
+  )
+  PROCESS {
+    $LeftPath   = RequirePath path/to/left $LeftPath container
+    $RightPath  = RequirePath path/to/right $RightPath container
+    $Diff       = DiffDirectories $LeftPath $RightPath
+    $LeftDiff   = $Diff | where {$_.SideIndicator -eq "<="} | select RelativePath,Hash
+    $RightDiff   = $Diff | where {$_.SideIndicator -eq "=>"} | select RelativePath,Hash
+    if($ExportSummary) {
+      $ExportSummary = ResolvePath path/to/summary/dir $ExportSummary
+      MakeDirP $ExportSummary
+      $SummaryPath = Join-Path $ExportSummary summary.txt
+      $LeftCsvPath = Join-Path $ExportSummary left.csv
+      $RightCsvPath = Join-Path $ExportSummary right.csv
+
+      $LeftMeasure = $LeftDiff | measure
+      $RightMeasure = $RightDiff | measure
+
+      "== DIFF SUMMARY ==" > $SummaryPath
+      "" >> $SummaryPath
+      "-- DIRECTORIES --" >> $SummaryPath
+      "`tLEFT -> $LeftPath" >> $SummaryPath
+      "`tRIGHT -> $RightPath" >> $SummaryPath
+      "" >> $SummaryPath
+      "-- DIFF COUNT --" >> $SummaryPath
+      "`tLEFT -> $($LeftMeasure.Count)" >> $SummaryPath
+      "`tRIGHT -> $($RightMeasure.Count)" >> $SummaryPath
+      "" >> $SummaryPath
+      $Diff | Format-Table >> $SummaryPath
+
+      $LeftDiff | Export-Csv $LeftCsvPath -f
+      $RightDiff | Export-Csv $RightCsvPath -f
+    }
+    if(!$NoLeft -and !$NoRight) {
+      $Diff
+    }
+    elseif(!$NoLeft -and $NoRight) {
+      $LeftDiff
+    }
+    elseif(!$NoRight -and $NoLeft) {
+      $RightDiff
+    }
+    else {
+      Print -w "Both -NoRight and -NoLeft were passed.  Results have been omitted."
+    }
+  }
+}
+
+function ResolvePodfile {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
+    [alias("p")]
+    [string]$PodfilePath
+  )
+  PROCESS {
+    ResolvePath path/to/podfile $PodfilePath
+  }
+}
+
+function RequirePodfile {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
+    [alias("p")]
+    [string]$PodfilePath
+  )
+  PROCESS {
+    RequirePath path/to/podfile $PodfilePath leaf
+  }
+}
+
+function ReadPodfile {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
+    [alias("p")]
+    [string]$PodfilePath
+  )
+  PROCESS {
+    $PodfilePath = RequirePodfile $PodfilePath
+    $PodfileJson = cat $PodfilePath | Out-String
+    ConvertFrom-Json $PodfileJson
+  }
+}
+
+function SavePodfile {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
+    [alias("p")]
+    [string]$PodfilePath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Podfile content object.")]
+    [alias("c")]
+    [Object[]]$PodfileContent
+  )
+  PROCESS {
+    ConvertTo-Json $PodfileJson
+    $PodfilePath = RequirePodfile $PodfilePath
+    $PodfileJson = cat $PodfilePath | Out-String
+
+  }
+}
+
+function NewPodFile {
+  [CmdletBinding(
+    SupportsShouldProcess=$TRUE,
+    ConfirmImpact="High"
+  )]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
+    [alias("p")]
+    [string]$PodfilePath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Name of server root.")]
+    [alias("n")]
+    [string]$Name,
+
+    [parameter(Mandatory=$TRUE,Position=2,HelpMessage="The path to the server root.")]
+    [alias("t")]
+    [string]$ServerRoot,
+
+    [parameter(Mandatory=$TRUE,Position=3,HelpMessage="The path to the server archive.")]
+    [alias("a")]
+    [string]$ArchiveRoot
+  )
+  PROCESS {
+    if(!$pscmdlet.ShouldProcess($PodfilePath)) {
+      Print -x -e "Podfile was not created. Goodbye."
+    }
+    $ServerRoot = ResolvePath path/to/server/root $ServerRoot
+    $ArchiveRoot = ResolvePath path/to/archive/root $ArchiveRoot
+    $PodfileJson = @"
+{ "targets":  [
+                { "name": "$Name"
+                , "root": "$ServerRoot"
+                , "archive": "$ArchiveRoot"
+                }
+              ]
+}
+"@ -replace "\\","\\\\"
+    $PodfileJson >$PodfilePath
+    Print -s "Podfile successfully written to $PodfilePath"
+  }
+}
+
 ### END FUNCTION DEFINITIONS ###
+
+$PodfilePath = ResolvePodfile $PodfilePath
 
 Log "START" -d
 PrintHeader
 
-### COMPARE ###
+### DIFF ###
 
-if($Compare) {
-  Print "== COMPARE MODE ==" -s -a 1
-  if($Compare.length -ne 2) {
-    Print -x "Compare requires passing exactly 2 path parameters separated by comma, you passed $($Compare.length)." -f
+if($Diff) {
+  Print "== DIFF MODE ==" -s -a 1
+  if($Diff.length -ne 2) {
+    Print -x "Recursive diff requires passing exactly 2 path parameters separated by comma, you passed $($Diff.length)." -f
   }
-  Print "Comparing $($Compare[0]) to $($Compare[1])..." -a 1
-  $LeftPath   = RequirePath path/to/left $Compare[0] container
-  $RightPath  = RequirePath path/to/right $Compare[1] container
-  $Diff       = DiffDirectories $LeftPath $RightPath
-  $LeftDiff   = $Diff | where {$_.SideIndicator -eq "<="} | select RelativePath,Hash
-  $RightDiff   = $Diff | where {$_.SideIndicator -eq "=>"} | select RelativePath,Hash
-  if($ExportSummary) {
-    $ExportSummary = ResolvePath path/to/summary/dir $ExportSummary
-    MakeDirP $ExportSummary
-    $SummaryPath = Join-Path $ExportSummary summary.txt
-    $LeftCsvPath = Join-Path $ExportSummary left.csv
-    $RightCsvPath = Join-Path $ExportSummary right.csv
-
-    $LeftMeasure = $LeftDiff | measure
-    $RightMeasure = $RightDiff | measure
-
-    "== DIFF SUMMARY ==" > $SummaryPath
-    "" >> $SummaryPath
-    "-- DIRECTORIES --" >> $SummaryPath
-    "`tLEFT -> $LeftPath" >> $SummaryPath
-    "`tRIGHT -> $RightPath" >> $SummaryPath
-    "" >> $SummaryPath
-    "-- DIFF COUNT --" >> $SummaryPath
-    "`tLEFT -> $($LeftMeasure.Count)" >> $SummaryPath
-    "`tRIGHT -> $($RightMeasure.Count)" >> $SummaryPath
-    "" >> $SummaryPath
-    $Diff | Format-Table >> $SummaryPath
-
-    $LeftDiff | Export-Csv $LeftCsvPath -f
-    $RightDiff | Export-Csv $RightCsvPath -f
-  }
-  $Diff
+  Print "Recursively diffing $($Diff[0]) and $($Diff[1])..." -a 1
+  RecursiveDiff $Diff[0] $Diff[1]
   SafeExit
 }
 
-### END COMPARE ###
+### END DIFF ###
 
 ### ROLLBACK ###
 
 if($Rollback) {
-
+  Print "== ROLLBACK MODE ==" -s -a 1
+  Print -x "Rollback mode is not yet implemented." -f
   SafeExit
 }
 
@@ -415,6 +578,12 @@ if($Rollback) {
 ### GENERATE ###
 
 if($Generate) {
+  Print "== GENERATE MODE ==" -s -a 1
+  if(!(Test-Path $PodfilePath -PathType leaf)) {
+    Print -w "No podfile exists at $PodfilePath, creating one..."
+    NewPodFile $PodfilePath
+  }
+  ReadPodfile $PodfilePath
 
   SafeExit
 }
@@ -434,6 +603,10 @@ $ETC_ARCHIVE_PATH = Join-Path $ETC_ROOT archive
 $ETC_TARGET_PATH  = Join-Path $ETC_ROOT target
 
 Log "POD_ROOT`t`t-> $POD_ROOT"
+
+if(!(Test-Path $ETC_ROOT)) {
+  PrintUsage "In deployment mode, pod must be run from a pod package directory or be passed the path to one." -x
+}
 
 Log "SET WORKING DIRECTORY TO CURRENT" -d
 SetWorkDirCurrent
