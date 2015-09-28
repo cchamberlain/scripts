@@ -4,7 +4,7 @@
                 }
               , { "name":     "SERVER_TWO"
                 , "root":     "/abs/path/to/server/root/two/root"
-                , "archive":  "//unc-server/path/to/archive/two/root"
+                , "archive":  "\\\\unc-server\\path\\to\\archive\\two\\root"
                 }
               ]
 }

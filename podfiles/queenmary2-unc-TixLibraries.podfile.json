@@ -1,0 +1,6 @@
+{ "targets":  [ { "name":     "QUEENMARY2-UNC-TIXLIBRARIES"
+                , "root":     "\\\\queenmary2\\TixLibraries"
+                , "archive":  "\\\\queenmary2\\DLLArchive\\PodArchives\\TixLibraries"
+                }
+              ]
+}

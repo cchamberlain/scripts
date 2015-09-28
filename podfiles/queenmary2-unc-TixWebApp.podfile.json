@@ -1,0 +1,6 @@
+{ "targets":  [ { "name":     "QUEENMARY2-UNC-TIXWEBAPP"
+                , "root":     "\\\\queenmary2\\Tix"
+                , "archive":  "\\\\queenmary2\\DLLArchive\\PodArchives\\TixWebApp"
+                }
+              ]
+}

@@ -1,0 +1,52 @@
+﻿<%@ Master Language="C#" Inherits="System.Web.UI.MasterPage" %>
+<%@ Import Namespace="Tix.Configuration" %>
+<%-- CHANGE LOG
+     CWC 07/07/2015 - Created master page template for AngularJS menu on a web forms aspx page.
+     CWC 09/04/2015 - Refactored most of this over to Core configuration area and implemented node overrides.
+     CWC 9/10/15 - Unified Login Refactor -> Main unified login angular master page.
+--%>
+<!DOCTYPE html>
+<html lang="en" xmlns:ng="http://angularjs.org" ng-app="tix.app" ng-strict-di ng-cloak class="wf-loading">
+<head>
+    <base href="/">
+    <style>
+        .wf-loading [class^="icon-"], .wf-loading [class*=" icon-"], .wf-loading h1, .wf-loading h2, .wf-loading h3, .wf-loading h4, .wf-loading div, .wf-loading p, .wf-loading span, .wf-loading a, .wf-loading ul, .wf-loading li .wf-loading i {
+            opacity: 0;
+            visibility: hidden;
+        }
+    </style>
+    <script src="<%=Core.Web.BuildClientJsUrl()%>" async defer></script>
+    <meta charset="utf-8"/>
+    <asp:ContentPlaceHolder ID="HeadContent" runat="server"></asp:ContentPlaceHolder>
+    <title>Tix Login</title>
+    <link rel="icon" href="<%=Core.Web.BuildClientFaviconUrl()%>" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="<%=Core.Web.BuildClientCssUrl()%>" rel="stylesheet"/>
+    <script async defer>
+        (function(d) {
+            var ctx = { "fonts": ["1em FontAwesome", "1em Lato"], "loaded": 0 }, i;
+
+            function loadFonts() {
+                for (i = 0; i < ctx.fonts.length; i++) d.fonts.load(ctx.fonts[i]).then(fontLoaded);
+            }
+
+            function fontLoaded() {
+                ctx.loaded++;
+                if (ctx.loaded === ctx.fonts.length) showFonts();
+            }
+
+            function showFonts() {
+                d.documentElement.className = "wf-active";
+            }
+
+            if (d.fonts) loadFonts();
+            else showFonts();
+        }(document));
+    </script>
+</head>
+<body>
+
+    <asp:ContentPlaceHolder ID="BodyContent" runat="server"></asp:ContentPlaceHolder>
+
+</body>
+</html>
