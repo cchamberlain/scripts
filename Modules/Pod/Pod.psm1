@@ -596,10 +596,10 @@ function Export-PodGit {
     $OriginalPath = $PWD
     SetWorkDir path/to/git $ExportTargetPath
     Print "Checking out $RevisionLast..."
-    git checkout $RevisionLast
+    git checkout $RevisionLast | Out-Null
 
     # http://svnbook.red-bean.com/en/1.7/svn.tour.revs.specifiers.html
-    $LogRaw=git diff --name-status --relative $RevisionFirst $RevisionLast
+    $LogRaw=$(git diff --name-status --relative $RevisionFirst $RevisionLast)
     $ModifiedPaths = ($LogRaw | where { $_.StartsWith("M") }) -replace "^[MDA] +",""
     $AddedPaths = ($LogRaw | where { $_.StartsWith("A") }) -replace "^[MDA] +",""
     $DeletedPaths = ($LogRaw | where { $_.StartsWith("D") }) -replace "^[MDA] +",""
