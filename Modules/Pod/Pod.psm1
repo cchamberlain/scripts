@@ -474,9 +474,12 @@ function Test-Git {
     }
     else {
       if($statusRaw) {
-
+        Write-Host "Git is currently dirty.  Commit first."
+        $FALSE
       }
-      $TRUE
+      else {
+        $TRUE
+      }
     }
   }
 }
@@ -506,6 +509,7 @@ function Export-PodSvn {
     if(!(Test-Svn $ExportTargetPath)) {
       Print -f -x "$ExportTargetPath is not an SVN repository or subpath. Cannot export."
     }
+
 
     $RevisionRange = "${RevisionFirst}:${RevisionLast}"
     Print "Exporting revisions [$RevisionRange] from SVN [$ExportTargetPath] to pod [$PodRoot]..."
@@ -591,6 +595,8 @@ function Export-PodGit {
 
     $OriginalPath = $PWD
     SetWorkDir path/to/git $ExportTargetPath
+    Print "Checking out $RevisionLast..."
+    git checkout $RevisionLast
 
     # http://svnbook.red-bean.com/en/1.7/svn.tour.revs.specifiers.html
     $LogRaw=git diff --name-status --relative $RevisionFirst $RevisionLast
@@ -602,8 +608,8 @@ function Export-PodGit {
     Write-Host "ADDED: $AddedPaths"
     Write-Host "DELETED: $DeletedPaths"
 
-    $ModifiedExportResult = $ModifiedPaths | %{git archive $_ $(MakePath $FilesRoot $_)}
-    $AddedExportResult =  $AddedPaths | %{svn export --native-eol CRLF --force -r $RevisionLast $_ $(MakePath $FilesRoot $_)}
+    $ModifiedExportResult = $ModifiedPaths | %{CopyFile $_ $(MakePath $FilesRoot $_)}
+    $AddedExportResult =  $AddedPaths | %{CopyFile $_ $(MakePath $FilesRoot $_)}
     $DeletedPaths | %{$_ >>$EtcDeletedPath}
 
     SetWorkDir path/to/original $OriginalPath
@@ -811,6 +817,16 @@ function Pod {
         }
         else {
           $output = Export-PodSvn -ExportTargetPath $ExportTargetPath $PodRoot
+          Write-Host $output
+          $output
+        }
+      }
+      if($UseGit) {
+        if($RevisionLast) {
+          Export-PodGit -ExportTargetPath $ExportTargetPath -RevisionFirst $RevisionFirst -RevisionLast $RevisionLast $PodRoot
+        }
+        else {
+          $output = Export-PodGit -ExportTargetPath $ExportTargetPath $PodRoot
           Write-Host $output
           $output
         }
