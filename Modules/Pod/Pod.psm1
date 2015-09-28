@@ -608,8 +608,8 @@ function Export-PodGit {
     Write-Host "ADDED: $AddedPaths"
     Write-Host "DELETED: $DeletedPaths"
 
-    $ModifiedExportResult = $ModifiedPaths | %{CopyFile $_ $(MakePath $FilesRoot $_)}
-    $AddedExportResult =  $AddedPaths | %{CopyFile $_ $(MakePath $FilesRoot $_)}
+    $ModifiedExportResult = $ModifiedPaths | %{CopyPath $_ $(MakePath $FilesRoot $_)}
+    $AddedExportResult =  $AddedPaths | %{CopyPath $_ $(MakePath $FilesRoot $_)}
     $DeletedPaths | %{$_ >>$EtcDeletedPath}
 
     SetWorkDir path/to/original $OriginalPath
