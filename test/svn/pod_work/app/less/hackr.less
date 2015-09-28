@@ -1,0 +1,17 @@
+@import "bootstrap/bootstrap.less";
+@import "hackr/fonts.less";
+@import "hackr/core.less";
+@import "hackr/variables.less";
+
+
+
+// for http://angular-ui.github.io/bootstrap/
+.nav, .pagination, .carousel, .panel-title a { cursor: pointer; }
+
+@navbar-gradient-start-color: #FFF;
+@navbar-gradient-stop-color: #E8E8E8;
+@navbar-gradient-start-color-2: #DDDDDD;
+@navbar-gradient-stop-color-2: #E8E8E8;
+.navbar-inverse {
+    #gradient > .vertical-four-colors(@navbar-gradient-start-color,@navbar-gradient-stop-color, 50%, @navbar-gradient-start-color-2, 50%, @navbar-gradient-stop-color-2);
+}
