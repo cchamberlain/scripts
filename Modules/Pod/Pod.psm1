@@ -270,10 +270,12 @@ function MakePath {
   PROCESS {
     if($RelativePath) {
       $FullPath = Join-Path $BasePath $RelativePath
+      Write-Host "Creating path at $FullPath..."
       New-Item -path $FullPath -itemtype file -force | Out-Null
       return $FullPath
     }
     else {
+      Write-Host "Creating path at $BasePath..."
       New-Item -path $BasePath -itemtype file -force | Out-Null
       $BasePath
     }
@@ -535,9 +537,9 @@ function Export-PodSvn {
 
     # http://svnbook.red-bean.com/en/1.7/svn.tour.revs.specifiers.html
     $LogRaw=svn diff --summarize -r $RevisionRange
-    $ModifiedPaths = ($LogRaw | where { $_.StartsWith("M") }) -replace "^[MDA] +",""
-    $AddedPaths = ($LogRaw | where { $_.StartsWith("A") }) -replace "^[MDA] +",""
-    $DeletedPaths = ($LogRaw | where { $_.StartsWith("D") }) -replace "^[MDA] +",""
+    $ModifiedPaths = ($LogRaw | where { $_.StartsWith("M") }) -replace "^[MDA]\s*",""
+    $AddedPaths = ($LogRaw | where { $_.StartsWith("A") }) -replace "^[MDA]\s*",""
+    $DeletedPaths = ($LogRaw | where { $_.StartsWith("D") }) -replace "^[MDA]\s*",""
 
     Write-Host "MODIFIED: $ModifiedPaths"
     Write-Host "ADDED: $AddedPaths"
@@ -600,9 +602,9 @@ function Export-PodGit {
 
     # http://svnbook.red-bean.com/en/1.7/svn.tour.revs.specifiers.html
     $LogRaw=$(git diff --name-status --relative $RevisionFirst $RevisionLast)
-    $ModifiedPaths = ($LogRaw | where { $_.StartsWith("M") }) -replace "^[MDA] +",""
-    $AddedPaths = ($LogRaw | where { $_.StartsWith("A") }) -replace "^[MDA] +",""
-    $DeletedPaths = ($LogRaw | where { $_.StartsWith("D") }) -replace "^[MDA] +",""
+    $ModifiedPaths = ($LogRaw | where { $_.StartsWith("M") }) -replace "^[MDA]\s*",""
+    $AddedPaths = ($LogRaw | where { $_.StartsWith("A") }) -replace "^[MDA]\s*",""
+    $DeletedPaths = ($LogRaw | where { $_.StartsWith("D") }) -replace "^[MDA]\s*",""
 
     Write-Host "MODIFIED: $ModifiedPaths"
     Write-Host "ADDED: $AddedPaths"
