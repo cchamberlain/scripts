@@ -1,0 +1,16 @@
+{
+  "export": { "target":     "$USERPROFILE\\tixinc\\tix\\TixLibraries"
+            , "podfile":    "$USERPROFILE\\cchamberlain\\scripts\\podfiles\\queenmary2-unc-TixLibraries.podfile.json"
+            , "podroot":    "$USERPROFILE\\tixinc\\pods\\TixLibraries"
+            , "svn":        true
+            , "revisions":  [ "PREV", "COMMITTED" ]
+            }
+, "pre":    [ { "name":     "PRELOG"
+              , "command":  "\"Running Pod-Export for TixLibraries...\" >>\"$USERPROFILE\\tixinc\\pods\\log.config\""
+              }
+            ]
+, "post":   [ { "name":     "POSTLOG"
+              , "command":  "\"Finished running Pod-Export for TixLibraries...\" >>\"$USERPROFILE\\tixinc\\pods\\log.config\""
+              }
+            ]
+}

@@ -37,27 +37,17 @@ param (
 
   [parameter(ParameterSetName="Setup",HelpMessage="scripts to the module path")]
   [alias("x")]
-  [switch]$ExportModules,
-
-  [parameter(ParameterSetName="Setup",HelpMessage="Bundles pod script and modules into a single script for server deployment")]
-  [alias("e")]
-  [switch]$ExportBundle
+  [switch]$ExportModules
 )
-
-if($ExportModules -and $ExportBundle) {
-  Write-Host "Error: [You cannot specify -ExportModules and -ExportBundle flag at the same time]" -ForegroundColor "Red"
-  Exit
-}
 
 switch($pscmdlet.ParameterSetName) {
   "None" {
-    Write-Host "Error: [You must specify one or more setup switches: [-m|-SetEnvPSModulePath,-p|-SetEnvPath,-x|-ExportModules,-e|-ExportBundle]]" -ForegroundColor "Red"
+    Write-Host "Error: [You must specify one or more setup switches: [-m|-SetEnvPSModulePath,-p|-SetEnvPath,-x|-ExportModules]]" -ForegroundColor "Red"
     Exit
   }
   "Setup" {
   }
 }
-
 
 function AppendEnvVariable {
   [CmdletBinding()]
@@ -132,14 +122,4 @@ if($ExportModules) {
   cp $FromPath $ToPath -recurse -force
   Write-Host "Modules successfully exported!" -ForegroundColor "Green"
   Import-Module Pod -force
-}
-
-if($ExportBundle) {
-  Write-Host "== EXPORT BUNDLE ==" -ForegroundColor "Green"
-  Write-Host ""
-
-  if(!(Test-Path $ModulePath -pathtype container)) {
-    Write-Host "Creating module directory at $ModulePath..."
-    New-Item -path $ModulePath -itemtype Directory -force | Out-Null
-  }
 }

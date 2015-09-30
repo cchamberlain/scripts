@@ -11,6 +11,10 @@ $POD_VERSION  = "$POD_SEMVER_MAJOR.$POD_SEMVER_MINOR.$POD_SEMVER_PATCH"
 
 ### FUNCTIONS ###
 
+function Get-TimeStamp {
+  "$(get-date -f yyyyMMdd\THHmmss)"
+}
+
 # PRINTS DEBUG INFORMATION IF POD_LOG=$TRUE or POD_DEBUG=$TRUE or POD_TRACE=$TRUE #
 function Log {
   [CmdletBinding(DefaultParameterSetName="Deploy")]
@@ -136,7 +140,7 @@ function PrintHeader {
   Write-Host ""
   Write-Host "== " -NoNewLine -ForegroundColor "Cyan"
   Write-Host "pod (version $POD_VERSION) [" -NoNewLine -ForegroundColor "Cyan"
-  Write-Host "$POD_STAMP" -NoNewLine -ForegroundColor "Yellow"
+  Write-Host "$ExecutionStamp" -NoNewLine -ForegroundColor "Yellow"
   Write-Host "] ==" -ForegroundColor "Cyan"
   Write-Host ""
 }
@@ -355,19 +359,6 @@ function DiffDirectories {
   }
 }
 
-
-function RequirePodfile {
-  [CmdletBinding()]
-  param (
-    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podfile.json.")]
-    [alias("p")]
-    [string]$PodfilePath
-  )
-  PROCESS {
-    RequirePath path/to/podfile $PodfilePath leaf
-  }
-}
-
 function ReadPodfile {
   [CmdletBinding()]
   param (
@@ -376,9 +367,23 @@ function ReadPodfile {
     [string]$PodfilePath
   )
   PROCESS {
-    $PodfilePath = RequirePodfile $PodfilePath
+    $PodfilePath = RequirePath path/to/podfile $PodfilePath leaf
     $PodfileJson = cat $PodfilePath | Out-String
     ConvertFrom-Json $PodfileJson
+  }
+}
+
+function ReadPodbuild{
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to podbuild.json.")]
+    [alias("p")]
+    [string]$PodbuildPath
+  )
+  PROCESS {
+    $PodbuildPath = RequirePath path/to/podbuild $PodbuildPath leaf
+    $PodbuildJson = cat $PodbuildPath | Out-String
+    ConvertFrom-Json $PodbuildJson
   }
 }
 
@@ -401,7 +406,7 @@ function SavePodfile {
   }
 }
 
-function New-PodFile {
+function New-Podfile {
   [CmdletBinding(
     SupportsShouldProcess=$TRUE,
     ConfirmImpact="Medium"
@@ -430,12 +435,11 @@ function New-PodFile {
     $ServerRoot = ResolvePath path/to/server/root $ServerRoot
     $ArchiveRoot = ResolvePath path/to/archive/root $ArchiveRoot
     $PodfileJson = @"
-{ "targets":  [
-              { "name": "$Name"
-              , "root": "$ServerRoot"
-              , "archive": "$ArchiveRoot"
-              }
-            ]
+{ "targets":  [ { "name": "$Name"
+                , "root": "$ServerRoot"
+                , "archive": "$ArchiveRoot"
+                }
+              ]
 }
 "@ -replace "\\","\\"
     $PodfileJson >$PodfilePath
@@ -460,7 +464,6 @@ function Test-Svn {
     }
   }
 }
-
 
 function Test-Git {
   [CmdletBinding()]
@@ -511,8 +514,6 @@ function Export-PodSvn {
     if(!(Test-Svn $ExportTargetPath)) {
       Print -f -x "$ExportTargetPath is not an SVN repository or subpath. Cannot export."
     }
-
-
     $RevisionRange = "${RevisionFirst}:${RevisionLast}"
     Print "Exporting revisions [$RevisionRange] from SVN [$ExportTargetPath] to pod [$PodRoot]..."
 
@@ -622,142 +623,243 @@ function Export-PodGit {
 
 ### EXPORTED FUNCTIONS ###
 
-function RDiff {
+
+<###############################################################################
+PODFILE.JSON FORMAT
+PURPOSE: DEFINES THE WHERE
+DESC: PODFILE IN ROOT OF POD PACKAGE DEFINES WHERE TO DEPLOY AND ARCHIVE
+RUNS ON: LOCAL, BUILD SERVER, WEB SERVER
+
+{ "targets":  [ { "name":     "SERVER_ONE"
+                , "root":     "path/to/server/one/root"
+                , "archive":  "path/to/archive/one/root"
+                }
+              , { "name":     "SERVER_TWO"
+                , "root":     "/abs/path/to/server/root/two/root"
+                , "archive":  "\\\\unc-server\\path\\to\\archive\\two\\root"
+                }
+              ]
+}
+###############################################################################>
+
+<###############################################################################
+PODBUILD.JSON FORMAT
+PURPOSE: DEFINES THE HOW
+DESC: PODBUILD DEFINES CONFIGURATION AND BUILD STEPS FOR POD EXPORT
+RUNS ON: LOCAL, BUILD SERVER
+
+{
+  "export": { "target":     "C:\\repo\\WebApp"
+            , "podfile":    "\\\\shared\\podfiles\\podfile.WebApp.json"
+            , "podroot":    "C:\\pods\\webapp"
+            , "svn":        true
+            , "git":        false
+            , "revisions":  [ "PREV", "COMMITTED" ]
+            }
+, "pre":    [ { "name":     "LOG_EXPORT"
+              , "command":  "Log-Export \"Running Pod-Export...\""
+              }
+            ]
+, "post":   [ { "name":     "TRANSFORM_WEBAPP_DEV"
+              , "command":  "cp -force web.dev.config web.config"
+              , "location": "TixWebApp"
+              }
+            , { "name":     "BUILD_WEBAPP"
+              , "command":  "Build-Net TixWebApp"
+              }
+            , { "name":     "UPLOAD_S3"
+              , "command":  "Upload-S3"
+              , "location": "$PodRoot"
+              }
+            ]
+}
+###############################################################################>
+
+
+Add-Type -Language CSharp @"
+public class CommandDefinition {
+  public string Name { get; set; }
+  public string Command { get; set; }
+  public string Location { get; set; }
+
+  public CommandDefinition(string name, string command, string location="") {
+    Name = name;
+    Command = command;
+    Location = location;
+  }
+}
+"@
+
+Function New-CommandDefinition {
   [CmdletBinding()]
-  param (
-    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Directory to compare left.")]
-    [alias("l")]
-    [string]$LeftPath,
+  PARAM(
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="The name of the command.")]
+    [string]$Name,
 
-    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Directory to compare right.")]
-    [alias("r")]
-    [string]$RightPath,
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="The command to execute.")]
+    [string]$Command,
 
-    [parameter(HelpMessage="Omit output for results from left side (for diffs)")]
-    [switch]$NoLeft,
-
-    [parameter(HelpMessage="Omit output for results from right side (for diffs)")]
-    [switch]$NoRight,
-
-    [parameter(HelpMessage="Export a summary to path")]
-    [alias("s")]
-    [string]$ExportSummary,
-
-    [parameter(HelpMessage="Machine / PowerShell parsable output")]
-    [alias("p")]
-    [switch]$Porcelain
+    [parameter(Position=2,HelpMessage="The path to execute the command in.")]
+    [string]$Location
   )
   PROCESS {
-    $LeftPath   = RequirePath path/to/left $LeftPath container
-    $RightPath  = RequirePath path/to/right $RightPath container
-    $Diff       = DiffDirectories $LeftPath $RightPath
-    $LeftDiff   = $Diff | where {$_.SideIndicator -eq "<="} | select RelativePath,Hash
-    $RightDiff   = $Diff | where {$_.SideIndicator -eq "=>"} | select RelativePath,Hash
-    if($ExportSummary) {
-      $ExportSummary = ResolvePath path/to/summary/dir $ExportSummary
-      MakeDirP $ExportSummary
-      $SummaryPath = Join-Path $ExportSummary summary.txt
-      $LeftCsvPath = Join-Path $ExportSummary left.csv
-      $RightCsvPath = Join-Path $ExportSummary right.csv
-
-      $LeftMeasure = $LeftDiff | measure
-      $RightMeasure = $RightDiff | measure
-
-      "== DIFF SUMMARY ==" > $SummaryPath
-      "" >> $SummaryPath
-      "-- DIRECTORIES --" >> $SummaryPath
-      "`tLEFT -> $LeftPath" >> $SummaryPath
-      "`tRIGHT -> $RightPath" >> $SummaryPath
-      "" >> $SummaryPath
-      "-- DIFF COUNT --" >> $SummaryPath
-      "`tLEFT -> $($LeftMeasure.Count)" >> $SummaryPath
-      "`tRIGHT -> $($RightMeasure.Count)" >> $SummaryPath
-      "" >> $SummaryPath
-      $Diff | Format-Table >> $SummaryPath
-
-      $LeftDiff | Export-Csv $LeftCsvPath -f
-      $RightDiff | Export-Csv $RightCsvPath -f
-    }
-    if(!$NoLeft -and !$NoRight) {
-      $Diff
-    }
-    elseif(!$NoLeft -and $NoRight) {
-      $LeftDiff
-    }
-    elseif(!$NoRight -and $NoLeft) {
-      $RightDiff
+    if($Location) {
+      New-Object -TypeName CommandDefinition -ArgumentList $Name,$Command,$Location
     }
     else {
-      Print -w "Both -NoRight and -NoLeft were passed.  Results have been omitted."
+      New-Object -TypeName CommandDefinition -ArgumentList $Name,$Command
     }
   }
 }
 
-
-###############################################################################
-# PODFILE FORMAT
-# DEFAULT: PODFILE IN ROOT OF POD PACKAGE
-#
-# { "targets":  [ { "name":     "SERVER_ONE"
-#                 , "root":     "path/to/server/one/root"
-#                 , "archive":  "path/to/archive/one/root"
-#                 }
-#               , { "name":     "SERVER_TWO"
-#                 , "root":     "/abs/path/to/server/root/two/root"
-#                 , "archive":  "//unc-server/path/to/archive/two/root"
-#                 }
-#               ]
-# }
-###############################################################################
-
-
-function Pod {
-  [CmdletBinding(DefaultParameterSetName="Deploy")]
+Function Export-Pod {
+  [CmdletBinding(DefaultParameterSetName="Export")]
   PARAM(
-    [parameter(HelpMessage="Stores the execution working directory")]
-    [string]$ExecutionDirectory=$PWD,
+    [parameter(ParameterSetName="Export",Position=0,HelpMessage="The podbuild.json file to use for export")]
+    [alias("podbuild")]
+    [string]$PodbuildPath,
 
-    [parameter(ParameterSetName="Deploy",Position=0,HelpMessage="Pod package directory path")]
-    [parameter(ParameterSetName="Rollback",Position=0,HelpMessage="Pod package directory path")]
-    [parameter(ParameterSetName="Export",Mandatory=$TRUE,Position=0,HelpMessage="Pod package directory path")]
+    [parameter(ParameterSetName="Export",Position=1,HelpMessage="Path to export pods to")]
+    [alias("pod")]
     [string]$PodRoot,
 
-    [parameter(ParameterSetName="Deploy",HelpMessage="Path to podfile configuration to use")]
-    [parameter(ParameterSetName="Rollback",HelpMessage="Path to podfile configuration to use")]
-    [parameter(ParameterSetName="Export",Position=1,HelpMessage="Path to podfile configuration to use")]
-    [alias("c")]
+    [parameter(ParameterSetName="Export",HelpMessage="The target path to export from source control")]
+    [alias("t","target")]
+    [string]$ExportTargetPath,
+
+    [parameter(ParameterSetName="Export",HelpMessage="Path to podfile configuration to use")]
+    [alias("podfile")]
     [string]$PodfilePath,
 
-    [parameter(ParameterSetName="Rollback",HelpMessage="Rollback a pod delta archive")]
-    [alias("r")]
-    [switch]$Rollback,
-
-    [parameter(ParameterSetName="Export",HelpMessage="Export a pod from source control to a specified path")]
-    [alias("e")]
-    [switch]$Export,
-
-    [parameter(ParameterSetName="Export",HelpMessage="Use SVN with command")]
-    [switch]$UseSvn,
-
-    [parameter(ParameterSetName="Export",HelpMessage="Use GIT with command")]
-    [switch]$UseGit,
-
-    [parameter(ParameterSetName="Export",HelpMessage="The target path to export from source control")]
-    [alias("t")]
-    [string]$ExportTargetPath=$PWD,
+    [parameter(Mandatory=$TRUE,ParameterSetName="Export",HelpMessage="'git' or 'svn' export strategy.")]
+    [ValidateSet("git","svn")]
+    [alias("s")]
+    [string]$Strategy,
 
     [parameter(ParameterSetName="Export",HelpMessage="Used for SVN / GIT integration")]
-    [string]$RevisionFirst,
+    [ValidateCount(0,2)]
+    [alias("r","revs")]
+    [string[]]$Revisions,
 
-    [parameter(ParameterSetName="Export",HelpMessage="Used for SVN / GIT integration")]
-    [string]$RevisionLast,
+    [parameter(ParameterSetName="Export",HelpMessage="Commands to run prior to export")]
+    [alias("pre")]
+    [CommandDefinition[]]$PreCommands,
+
+    [parameter(ParameterSetName="Export",HelpMessage="Commands to run post export")]
+    [alias("post")]
+    [CommandDefinition[]]$PostCommands,
 
     [parameter(HelpMessage="Machine / PowerShell parsable output")]
     [alias("p")]
     [switch]$Porcelain
   )
+  BEGIN {
+    $ExecutionDirectory = $PWD
+    $ExecutionStamp = Get-TimeStamp
+  }
   PROCESS {
-    $POD_STAMP = "$(get-date -f yyyyMMdd\THHmmss)"
+    switch($pscmdlet.ParameterSetName) {
+      "Export" {
+        if($PodbuildPath) {
+          $Podbuild = ReadPodbuild $PodbuildPath
+          if($Podbuild.target) {
+
+          }
+          return
+        }
+
+        if(!$ExportTargetPath) {
+          $ExportTargetPath = $PWD
+        }
+        $PodfileExportPath = ResolvePath path/to/podfile/export (Join-Path $PodRoot podfile.json)
+        if(!$PodfilePath) { $PodfilePath=$PodfileExportPath }
+        $PodfilePath = ResolvePath path/to/podfile $PodfilePath
+        if(!$UseGit -and !$UseSvn) {
+          if(Test-Git $ExportTargetPath) {
+            Print "git detected at [$ExportTargetPath] -> enabling UseGit strategy"
+            $UseGit = $TRUE
+          }
+          elseif(Test-Svn $ExportTargetPath) {
+            Print "svn detected at [$ExportTargetPath] -> enabling UseGit strategy"
+            $UseSvn = $TRUE
+          }
+          else {
+            Print -f "-Export flag requires -UseGit or -UseSvn strategy flag"
+            return
+          }
+        }
+        if($Revisions) {
+          if($Revisions.Count -ne 2) {
+            Print -f "-Revisions requires 2 revisions (range) to export"
+            return
+          }
+          $RevisionFirst = $Revisions[0]
+          $RevisionsLast = $Revisions[1]
+        }
+      }
+    }
+
+    if(!(Test-Path $PodfilePath -PathType leaf)) {
+      Print -w "No podfile exists at $PodfilePath, creating one..."
+      New-PodFile $PodfilePath -Confirm
+    }
+    if($PodfilePath -ne $PodfileExportPath) {
+      CopyPath $PodfilePath $PodfileExportPath
+    }
+    $Podfile = ReadPodfile $PodfileExportPath
+    Print -s "-- PODFILE --"
+    $Podfile
+
+    if($UseSvn) {
+      if($Revisions) {
+        $ExportOutput = Export-PodSvn -ExportTargetPath $ExportTargetPath -RevisionFirst $RevisionFirst -RevisionLast $RevisionLast $PodRoot
+      }
+      else {
+        $ExportOutput = Export-PodSvn -ExportTargetPath $ExportTargetPath $PodRoot
+      }
+    }
+    if($UseGit) {
+      if($RevisionLast) {
+        $ExportOutput = Export-PodGit -ExportTargetPath $ExportTargetPath -RevisionFirst $RevisionFirst -RevisionLast $RevisionLast $PodRoot
+      }
+      else {
+        $ExportOutput = Export-PodGit -ExportTargetPath $ExportTargetPath $PodRoot
+      }
+    }
+    Print -s "-- EXPORT OUTPUT --"
+    $ExportOutput
+  }
+  END {
+    SafeExit
+  }
+}
+
+function Pod {
+  [CmdletBinding(DefaultParameterSetName="Deploy")]
+  PARAM(
+    [parameter(ParameterSetName="Deploy",Position=0,HelpMessage="Pod package directory path")]
+    [parameter(ParameterSetName="Rollback",Position=0,HelpMessage="Pod package directory path")]
+    [alias("pod")]
+    [string]$PodRoot,
+
+    [parameter(ParameterSetName="Deploy",HelpMessage="Path to podfile configuration to use")]
+    [parameter(ParameterSetName="Rollback",HelpMessage="Path to podfile configuration to use")]
+    [alias("podfile")]
+    [string]$PodfilePath,
+
+    [parameter(ParameterSetName="Rollback",HelpMessage="Rollback a pod delta archive")]
+    [alias("r", "rb")]
+    [switch]$Rollback,
+
+    [parameter(HelpMessage="Machine / PowerShell parsable output")]
+    [alias("p")]
+    [switch]$Porcelain
+  )
+  BEGIN {
+    $ExecutionDirectory=$PWD
+    $ExecutionStamp = Get-TimeStamp
+  }
+  PROCESS {
 
     ### VALIDATION ###
 
@@ -771,15 +873,6 @@ function Pod {
         if(!$PodRoot) { $PodRoot = $PWD }
         if(!$PodfilePath) { $PodfilePath=(Join-Path $PodRoot podfile.json) }
         $PodfilePath = ResolvePath path/to/podfile $PodfilePath
-      }
-      "Export" {
-        $PodfileExportPath = ResolvePath path/to/podfile/export (Join-Path $PodRoot podfile.json)
-        if(!$PodfilePath) { $PodfilePath=$PodfileExportPath }
-        $PodfilePath = ResolvePath path/to/podfile $PodfilePath
-        if(!$UseGit -and !$UseSvn) {
-          Print -f "-Export flag requires -UseGit or -UseSvn strategy flag."
-          return
-        }
       }
     }
 
@@ -800,47 +893,7 @@ function Pod {
 
     ### END ROLLBACK ###
 
-    ### EXPORT ###
-
-    if($Export) {
-      if(!(Test-Path $PodfilePath -PathType leaf)) {
-        Print -w "No podfile exists at $PodfilePath, creating one..."
-        New-PodFile $PodfilePath -Confirm
-      }
-      if($PodfilePath -ne $PodfileExportPath) {
-        CopyPath $PodfilePath $PodfileExportPath
-      }
-      $Podfile = ReadPodfile $PodfileExportPath
-      $Podfile
-
-      if($UseSvn) {
-        if($RevisionLast) {
-          Export-PodSvn -ExportTargetPath $ExportTargetPath -RevisionFirst $RevisionFirst -RevisionLast $RevisionLast $PodRoot
-        }
-        else {
-          $output = Export-PodSvn -ExportTargetPath $ExportTargetPath $PodRoot
-          Write-Host $output
-          $output
-        }
-      }
-      if($UseGit) {
-        if($RevisionLast) {
-          Export-PodGit -ExportTargetPath $ExportTargetPath -RevisionFirst $RevisionFirst -RevisionLast $RevisionLast $PodRoot
-        }
-        else {
-          $output = Export-PodGit -ExportTargetPath $ExportTargetPath $PodRoot
-          Write-Host $output
-          $output
-        }
-      }
-
-      SafeExit
-    }
-
-    ### END EXPORT ###
-
     ### DEPLOY ###
-
 
     Log "CONFIGURE BASIC PATHS" -d
     $POD_ROOT         = RequirePath /path/to/pod $PodRoot container
@@ -889,7 +942,7 @@ function Pod {
     Log "TARGET_ROOT`t-> $TARGET_ROOT"
     Log "ARCHIVE_ROOT`t-> $ARCHIVE_ROOT"
 
-    $ARCHIVE_ROOT =  Join-Path $ARCHIVE_PARENT_ROOT "archive-$POD_STAMP"
+    $ARCHIVE_ROOT =  Join-Path $ARCHIVE_PARENT_ROOT "archive-$ExecutionStamp"
 
     Log "ETC RAW CONFIGURATIONS READ" -d
     Log "DELETE_PATHS`t-> $DELETE_PATHS" -d
@@ -1001,11 +1054,88 @@ function Pod {
     Write-Host "`tArchive Location: $ARCHIVE_ROOT" -ForegroundColor "Magenta"
 
     ### END DEPLOY ###
-
+  }
+  END {
     SafeExit
-
   }
 }
 
+
+function RDiff {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Directory to compare left.")]
+    [alias("l")]
+    [string]$LeftPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Directory to compare right.")]
+    [alias("r")]
+    [string]$RightPath,
+
+    [parameter(HelpMessage="Omit output for results from left side (for diffs)")]
+    [switch]$NoLeft,
+
+    [parameter(HelpMessage="Omit output for results from right side (for diffs)")]
+    [switch]$NoRight,
+
+    [parameter(HelpMessage="Export a summary to path")]
+    [alias("s")]
+    [string]$ExportSummary,
+
+    [parameter(HelpMessage="Machine / PowerShell parsable output")]
+    [alias("p")]
+    [switch]$Porcelain
+  )
+  BEGIN {
+    $ExecutionDirectory=$PWD
+  }
+  PROCESS {
+    $LeftPath   = RequirePath path/to/left $LeftPath container
+    $RightPath  = RequirePath path/to/right $RightPath container
+    $Diff       = DiffDirectories $LeftPath $RightPath
+    $LeftDiff   = $Diff | where {$_.SideIndicator -eq "<="} | select RelativePath,Hash
+    $RightDiff   = $Diff | where {$_.SideIndicator -eq "=>"} | select RelativePath,Hash
+    if($ExportSummary) {
+      $ExportSummary = ResolvePath path/to/summary/dir $ExportSummary
+      MakeDirP $ExportSummary
+      $SummaryPath = Join-Path $ExportSummary summary.txt
+      $LeftCsvPath = Join-Path $ExportSummary left.csv
+      $RightCsvPath = Join-Path $ExportSummary right.csv
+
+      $LeftMeasure = $LeftDiff | measure
+      $RightMeasure = $RightDiff | measure
+
+      "== DIFF SUMMARY ==" > $SummaryPath
+      "" >> $SummaryPath
+      "-- DIRECTORIES --" >> $SummaryPath
+      "`tLEFT -> $LeftPath" >> $SummaryPath
+      "`tRIGHT -> $RightPath" >> $SummaryPath
+      "" >> $SummaryPath
+      "-- DIFF COUNT --" >> $SummaryPath
+      "`tLEFT -> $($LeftMeasure.Count)" >> $SummaryPath
+      "`tRIGHT -> $($RightMeasure.Count)" >> $SummaryPath
+      "" >> $SummaryPath
+      $Diff | Format-Table >> $SummaryPath
+
+      $LeftDiff | Export-Csv $LeftCsvPath -f
+      $RightDiff | Export-Csv $RightCsvPath -f
+    }
+    if(!$NoLeft -and !$NoRight) {
+      $Diff
+    }
+    elseif(!$NoLeft -and $NoRight) {
+      $LeftDiff
+    }
+    elseif(!$NoRight -and $NoLeft) {
+      $RightDiff
+    }
+    else {
+      Print -w "Both -NoRight and -NoLeft were passed.  Results have been omitted."
+    }
+  }
+  END {
+    SafeExit
+  }
+}
 
 ### END EXPORTED FUNCTIONS ###
