@@ -260,6 +260,67 @@ function CopyPath {
 }
 
 # Like cp -rf -> Copies file or directory (recursive / force) and ensures destination exists first #
+function MovePath {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to copy from.")]
+    [alias("f")]
+    [string]$FromPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Path to copy to.")]
+    [alias("t")]
+    [string]$ToPath
+  )
+  PROCESS {
+    if(!(Test-Path $ToPath)) {
+      New-Item -path $ToPath -itemtype file -force | Out-Null
+    }
+    mv $FromPath $ToPath -force
+  }
+}
+
+function CopyDir {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to copy from.")]
+    [alias("f")]
+    [string]$FromPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Path to copy to.")]
+    [alias("t")]
+    [string]$ToPath
+  )
+  PROCESS {
+    $ToPath = [io.path]::GetDirectoryName("$ToPath")
+    New-Item -path $ToPath -itemtype directory -force | Out-Null
+    cp $FromPath $ToPath -recurse -force
+  }
+}
+
+function MoveDir {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to copy from.")]
+    [alias("f")]
+    [string]$FromPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Path to copy to.")]
+    [alias("t")]
+    [string]$ToPath
+  )
+  PROCESS {
+    $ToPath = [io.path]::GetDirectoryName("$ToPath")
+    if((Test-Path $ToPath)) {
+      Remove-Item -Recurse -Force $ToPath
+    }
+    if(!(Test-Path $ToPath)) {
+      New-Item -path $ToPath -itemtype directory -force | Out-Null
+    }
+    mv $FromPath $ToPath -force
+  }
+}
+
+# Like cp -rf -> Copies file or directory (recursive / force) and ensures destination exists first #
 function MakePath {
   [CmdletBinding()]
   param (
@@ -299,10 +360,17 @@ function GetFolders {
   [CmdletBinding()]
   param (
     [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to get directories for.")]
-    [string]$Path
+    [string]$Path,
+
+    [parameter(Position=1,HelpMessage="Optional filter to filter folders by.")]
+    [string[]]$Filters
   )
   PROCESS {
-    ls $Path -r | where { $_.PSIsContainer }
+    $Folders = ls $Path -r | where { $_.PSIsContainer }
+    foreach($Filter in $Filters) {
+      $Folders = $Folders | where { $_.Name -match $Filter }
+    }
+    $Folders
   }
 }
 
@@ -311,10 +379,28 @@ function GetFiles {
   [CmdletBinding()]
   param (
     [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Path to get files for.")]
-    [string]$Path
+    [string]$Path,
+
+    [parameter(Position=1,HelpMessage="Optional filter to filter files by.")]
+    [string[]]$Filters
   )
   PROCESS {
-    ls $Path -r | where { !$_.PSIsContainer }
+    $Files = ls $Path -r | where { !$_.PSIsContainer }
+    foreach($Filter in $Filters) {
+      $Files = $Files | where { $_.Name -match $Filter }
+    }
+    $Files
+  }
+}
+
+function GetParentPath {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,ValueFromPipeline=$TRUE,HelpMessage="Path to get parent directory for.")]
+    [Object]$Path
+  )
+  PROCESS {
+    $Path | select -ExpandProperty PSParentPath | % {$_.Replace("Microsoft.PowerShell.Core\FileSystem::", "")}
   }
 }
 
@@ -708,6 +794,181 @@ function Export-PodGit {
 ### END FUNCTIONS ###
 
 ### EXPORTED FUNCTIONS ###
+
+function RPrune {
+  [CmdletBinding()]
+  param (
+    [parameter(Mandatory=$TRUE,Position=0,HelpMessage="Directory to prune.")]
+    [alias("root")]
+    [string]$RootPath,
+
+    [parameter(Mandatory=$TRUE,Position=1,HelpMessage="Directory to export pruned files to.")]
+    [alias("export")]
+    [string]$ExportPath,
+
+    [parameter(HelpMessage="Patterns to delete for files.")]
+    [alias("files")]
+    [string[]]$DeleteFilePatterns,
+
+    [parameter(HelpMessage="Patterns to delete for folders.")]
+    [alias("folders")]
+    [string[]]$DeleteFolderPatterns,
+
+    [parameter(HelpMessage="Match three digit file backup pattern.")]
+    [alias("three")]
+    [switch]$MatchThreeDigitBackup,
+
+    [parameter(HelpMessage="Match thumbs.db files.")]
+    [alias("thumbs")]
+    [switch]$MatchThumbsDbFiles,
+
+    [parameter(HelpMessage="Match adobe files.")]
+    [alias("adobe")]
+    [switch]$MatchAdobeFiles,
+
+    [parameter(HelpMessage="Match log files.")]
+    [alias("log")]
+    [switch]$MatchLogFiles,
+
+    [parameter(HelpMessage="Match folders with old name.")]
+    [alias("old")]
+    [switch]$MatchOldFolders,
+
+    [parameter(HelpMessage="Match folders with archive name.")]
+    [alias("archived")]
+    [switch]$MatchArchivedFolders,
+
+    [parameter(HelpMessage="Match folders with NameTest name patterns.")]
+    [alias("test")]
+    [switch]$MatchTestFolders,
+
+    [parameter(HelpMessage="Match folders with _vti_cnf.. name patterns.")]
+    [alias("vti")]
+    [switch]$MatchVtiFolders,
+
+    [parameter(Mandatory=$TRUE, HelpMessage="Export a summary to path")]
+    [alias("s")]
+    [string]$ExportSummary,
+
+    [parameter(HelpMessage="Machine / PowerShell parsable output")]
+    [alias("p")]
+    [switch]$Porcelain
+  )
+  BEGIN {
+    $ExecutionDirectory=$PWD
+  }
+  PROCESS {
+    $RootPath = RequirePath path/to/root $RootPath container
+    $ExportPath = ResolvePath path/to/export $ExportPath
+
+    $ExportSummary = ResolvePath path/to/summary/dir $ExportSummary
+    MakeDirP $ExportSummary
+    $SummaryPath = Join-Path $ExportSummary summary.txt
+
+    MakeDirP $ExportPath
+    $OriginalPath = $PWD
+    SetWorkDir path/to/diff $RootPath
+    if($MatchOldFolders) {
+      "== OLD FOLDERS ==" >$SummaryPath
+      $ExportPathOld = Join-Path $ExportPath old
+      $FilteredFolders = GetFolders $RootPath [\s\/]*old$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathOld ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFolders | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFolders | % {MoveDir $_.FromPath $_.ToPath}
+    }
+    if($MatchArchivedFolders) {
+      "== ARCHIVE FOLDERS ==" >>$SummaryPath
+      $ExportPathArchive = Join-Path $ExportPath archive
+      $FilteredFolders = GetFolders $RootPath [\s\/]*archive[\s]* | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathArchive ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFolders | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFolders | % {MoveDir $_.FromPath $_.ToPath}
+    }
+    if($MatchTestFolders) {
+      "== TEST FOLDERS ==" >>$SummaryPath
+      $ExportPathTest = Join-Path $ExportPath test
+      $FilteredFolders = GetFolders $RootPath [\s\/]*Test$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathTest ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFolders | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFolders | % {MoveDir $_.FromPath $_.ToPath}
+    }
+    if($MatchVtiFolders) {
+      "== VTI FOLDERS ==" >>$SummaryPath
+      $ExportPathVti = Join-Path $ExportPath _vti
+      $FilteredFolders = GetFolders $RootPath [\s\/]*_vti_.*$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathVti ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFolders | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFolders | % {MoveDir $_.FromPath $_.ToPath}
+    }
+    if($MatchLogFiles) {
+      "== LOG FILES ==" >>$SummaryPath
+      $ExportPathLogFiles = Join-Path $ExportPath log
+      $FilteredFiles = GetFiles $RootPath \s*\.log$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathLogFiles ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFiles | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFiles | % {MovePath $_.FromPath $_.ToPath}
+    }
+    if($MatchAdobeFiles) {
+      "== AI/PSD FILETYPE ==" >>$SummaryPath
+      $ExportPathAdobeFiles = Join-Path $ExportPath adobe
+      #AI FILES
+      $FilteredFiles = GetFiles $RootPath \s*\.ai$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathAdobeFiles ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFiles | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFiles | % {MovePath $_.FromPath $_.ToPath}
+      #PSD FILES
+      $FilteredFiles = GetFiles $RootPath \s*\.psd$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathAdobeFiles ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFiles | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFiles | % {MovePath $_.FromPath $_.ToPath}
+    }
+    if($MatchThreeDigitBackup) {
+      "== 3 DIGIT FILENAME ==" >>$SummaryPath
+      $ExportPathArchiveFiles = Join-Path $ExportPath archivefiles
+      $FilteredFiles = GetFiles $RootPath \s*[^\d]\d\d\d\.\s* | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathArchiveFiles ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFiles | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFiles | % {MovePath $_.FromPath $_.ToPath}
+    }
+    if($MatchThumbsDbFiles) {
+      "== THUMBS DB ==" >>$SummaryPath
+      $ExportPathThumbs = Join-Path $ExportPath thumbs
+      $FilteredFiles = GetFiles $RootPath \s*thumbs\.db$ | select  @{N="ParentPath";E={$_ | GetParentPath}},
+                                                                    @{N="RelativePath";E={$_.FullName | Resolve-Path -Relative}},
+                                                                    @{N="FromPath";E={$_.FullName}},
+                                                                    @{N="ToPath";E={Join-Path $ExportPathThumbs ($_.FullName | Resolve-Path -Relative)}}
+      $FilteredFiles | Select -ExpandProperty RelativePath | Format-Table >>$SummaryPath
+      $FilteredFiles | % {MovePath $_.FromPath $_.ToPath}
+    }
+
+
+
+
+
+
+    SetWorkDir path/to/original $OriginalPath
+
+  }
+  END {
+    SafeExit
+  }
+}
 
 
 <###############################################################################

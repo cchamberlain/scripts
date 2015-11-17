@@ -2,6 +2,8 @@
 logs
 *.log
 
+pruned*
+
 # Runtime data
 pids
 *.pid
@@ -27,3 +29,4 @@ build/Release
 node_modules
 
 test/pods/
+test/prune/
